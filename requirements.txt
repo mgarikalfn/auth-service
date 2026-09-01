@@ -1,0 +1,29 @@
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# ── Data validation (Pydantic v2) ──────────────────────────────────────────────
+pydantic>=2.7.0
+pydantic[email]>=2.7.0          # EmailStr support
+pydantic-settings>=2.2.0        # BaseSettings / .env loading
+
+# ── ORM / database ─────────────────────────────────────────────────────────────
+sqlmodel>=0.0.19                 # SQLAlchemy 2.0 + Pydantic v2 bridge
+aiosqlite>=0.20.0                # Async SQLite driver (local dev)
+asyncpg>=0.29.0                  # Async Postgres driver (production)
+
+# ── Authentication ─────────────────────────────────────────────────────────────
+python-jose[cryptography]>=3.3.0 # JWT encoding / decoding
+bcrypt>=4.0.0                   # Bcrypt password hashing
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+slowapi>=0.1.9                   # Starlette-native rate limiter
+
+# ── Config ────────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+anyio>=4.3.0
+httpx>=0.27.0

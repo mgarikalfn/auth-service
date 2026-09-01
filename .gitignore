@@ -1,0 +1,71 @@
+# ── Documentation / Markdown ──────────────────────────────────────────────────
+*.md
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Database files ─────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Environment / secrets & sensitive credentials ─────────────────────────────
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.id_rsa
+*.pub
+credentials.json
+service_account.json
+client_secrets.json
+.secrets/
+*.secret
+*.token
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# ── Type-checking / linting ────────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── IDEs & OS sensitive files ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs & Backups ─────────────────────────────────────────────────────────────
+*.log
+*.bak
+*.tmp
+*.temp
+*.orig
