@@ -5,9 +5,11 @@ logic themselves.  Each function raises the appropriate ``HTTPException`` so
 the caller gets a clean, consistent JSON error body.
 """
 
+import re
 import uuid
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -19,13 +21,53 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.user import User
-from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, TokenResponse
+from app.models.membership import Membership,MembershipStatus 
+from app.models.organization import Organization 
+from app.models.role import Role 
+from app.models.user import User 
+from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, TokenResponse 
 from app.schemas.user import UserOut
 
+def _generate_slug(name : str) -> str:
+    """Generate a URl-safe organization slug from its name."""
+
+    slug = name.lower().strip()
+    slug = re.sub(r"[^a-z0-9]+","-",slug)
+    slug = slug.strip("-")
+
+    if not slug:
+        slug = "organization"
+
+    #organization.slug has max_length=100.
+    return slug[:100]
+
+async def _generate_unique_slug(name:str , session:AsyncSession)-> str:
+    """Generate an organization slug that does not currently exist"""
+    base_slug = _generate_slug(name)
+
+    result = await session.exec(
+        select(Organization).where(Organization.slug == base_slug)
+    )
+
+    if result.first() is None:
+        return base_slug
+    #Add a short UUID suffix if the generated slug already exists . 
+    suffix = uuid.uuid4().hex[:8]
+
+    #keep the total length <= 100.
+    max_base_length = 100 - len(suffix) -1
+
+    return f"{base_slug[:max_base_length]}-{suffix}"
 
 async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
-    """Register a new user.
+    """Register a new user and create there first organization.
+
+    the signup operation creates four related records:
+    1. user 
+    2. organization
+    3. owner role
+    4. active membership
+    all record are commited in a single database transaction
 
     Raises:
         409 Conflict: if *data.email* is already taken.
@@ -36,13 +78,30 @@ async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email address is already registered",
         )
-
+    organization_slug = await _generate_unique_slug(data.organization_name,session)
+    
     user = User(
         email=data.email,
         hashed_password=hash_password(data.password),
     )
+
+    organization = Organization(name = data.organization_name,slug = organization_slug)
+
+    owner_role = Role(organization_id=organization.id,name="Owner",description="Full access to the organization",is_system=True)
+
+    membership = Membership(user_id=user.id,organization_id=organization.id,role_id=owner_role.id,status=MembershipStatus.ACTIVE)
+
+
     session.add(user)
-    await session.commit()
+    session.add(organization)
+    session.add(owner_role)
+    session.add(membership)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="Unable to create the account . the organization or email already exists. ")
     await session.refresh(user)
     return UserOut.model_validate(user)
 
