@@ -6,7 +6,10 @@ from app.db.session import engine
 
 # Import all models so their metadata is registered before create_all runs.
 import app.models.user  # noqa: F401
-
+import app.models.organization  # noqa: F401
+import app.models.membership  # noqa: F401
+import app.models.role  # noqa: F401
+import app.models.permission  # noqa: F401
 
 async def create_db_and_tables() -> None:
     """Create all database tables that don't already exist.
