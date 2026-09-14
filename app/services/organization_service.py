@@ -46,7 +46,6 @@ async def _generate_unique_slug(
 
     while True:
         suffix = uuid.uuid4().hex[:8]
-
         max_base_length = 100 - len(suffix) - 1
 
         candidate = f"{base_slug[:max_base_length]}-{suffix}"
@@ -61,20 +60,31 @@ async def _generate_unique_slug(
             return candidate
 
 
-async def create_organization(
-    data: OrganizationCreate,
-    current_user: User,
+async def create_organization_for_user(
+    name: str,
+    user: User,
     session: AsyncSession,
-) -> OrganizationOut:
-    """Create an organization and make the current user its owner."""
+) -> Organization:
+    """Create an organization and its initial owner membership.
+
+    This is the single source of truth for organization creation.
+
+    Creates atomically:
+
+    1. Organization
+    2. Owner role
+    3. Active membership for the user
+
+    The caller controls the transaction commit.
+    """
 
     slug = await _generate_unique_slug(
-        data.name,
+        name,
         session,
     )
 
     organization = Organization(
-        name=data.name,
+        name=name.strip(),
         slug=slug,
     )
 
@@ -86,7 +96,7 @@ async def create_organization(
     )
 
     membership = Membership(
-        user_id=current_user.id,
+        user_id=user.id,
         organization_id=organization.id,
         role_id=owner_role.id,
         status=MembershipStatus.ACTIVE,
@@ -96,8 +106,24 @@ async def create_organization(
     session.add(owner_role)
     session.add(membership)
 
-    await session.commit()
+    return organization
 
+
+async def create_organization(
+    data: OrganizationCreate,
+    current_user: User,
+    session: AsyncSession,
+) -> OrganizationOut:
+    """Create an organization for the current user."""
+
+    organization = await create_organization_for_user(
+
+        name=data.name,
+        user=current_user,
+        session=session,
+    )
+
+    await session.commit()
     await session.refresh(organization)
 
     return OrganizationOut.model_validate(organization)
@@ -124,10 +150,8 @@ async def get_user_organizations(
 
     result = await session.exec(statement)
 
-    organizations = result.all()
-
     return [
         OrganizationOut.model_validate(organization)
-        for organization in organizations
+        for organization in result.all()
     ]
 

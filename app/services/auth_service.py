@@ -5,7 +5,6 @@ logic themselves.  Each function raises the appropriate ``HTTPException`` so
 the caller gets a clean, consistent JSON error body.
 """
 
-import re
 import uuid
 
 from fastapi import HTTPException, status
@@ -21,89 +20,70 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.membership import Membership,MembershipStatus 
-from app.models.organization import Organization 
-from app.models.role import Role 
+
 from app.models.user import User 
 from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, TokenResponse 
 from app.schemas.user import UserOut
+from app.services import organization_service
 
-def _generate_slug(name : str) -> str:
-    """Generate a URl-safe organization slug from its name."""
-
-    slug = name.lower().strip()
-    slug = re.sub(r"[^a-z0-9]+","-",slug)
-    slug = slug.strip("-")
-
-    if not slug:
-        slug = "organization"
-
-    #organization.slug has max_length=100.
-    return slug[:100]
-
-async def _generate_unique_slug(name:str , session:AsyncSession)-> str:
-    """Generate an organization slug that does not currently exist"""
-    base_slug = _generate_slug(name)
-
-    result = await session.exec(
-        select(Organization).where(Organization.slug == base_slug)
-    )
-
-    if result.first() is None:
-        return base_slug
-    #Add a short UUID suffix if the generated slug already exists . 
-    suffix = uuid.uuid4().hex[:8]
-
-    #keep the total length <= 100.
-    max_base_length = 100 - len(suffix) -1
-
-    return f"{base_slug[:max_base_length]}-{suffix}"
 
 async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
-    """Register a new user and create there first organization.
+    """Register a new user and create their first organization.
 
-    the signup operation creates four related records:
-    1. user 
-    2. organization
-    3. owner role
-    4. active membership
-    all record are commited in a single database transaction
+    Creates atomically:
 
-    Raises:
-        409 Conflict: if *data.email* is already taken.
+    1. User
+    2. Organization
+    3. Owner role
+    4. Active membership
     """
-    result = await session.exec(select(User).where(User.email == data.email))
+
+    result = await session.exec(
+        select(User).where(User.email == data.email)
+    )
+
     if result.first() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email address is already registered",
         )
-    organization_slug = await _generate_unique_slug(data.organization_name,session)
-    
+
     user = User(
         email=data.email,
         hashed_password=hash_password(data.password),
     )
 
-    organization = Organization(name = data.organization_name,slug = organization_slug)
-
-    owner_role = Role(organization_id=organization.id,name="Owner",description="Full access to the organization",is_system=True)
-
-    membership = Membership(user_id=user.id,organization_id=organization.id,role_id=owner_role.id,status=MembershipStatus.ACTIVE)
-
-
     session.add(user)
-    session.add(organization)
-    session.add(owner_role)
-    session.add(membership)
+
+    # Creates:
+    # - Organization
+    # - Owner role
+    # - Active membership
+    #
+    # It deliberately does NOT commit.
+    await organization_service.create_organization_for_user(
+        name=data.organization_name,
+        user=user,
+        session=session,
+    )
+
     try:
         await session.commit()
     except IntegrityError:
         await session.rollback()
 
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="Unable to create the account . the organization or email already exists. ")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Unable to create the account. "
+                "The organization or email may already exist."
+            ),
+        )
+
     await session.refresh(user)
+
     return UserOut.model_validate(user)
+
 
 
 async def login(data: LoginRequest, session: AsyncSession) -> TokenResponse:
