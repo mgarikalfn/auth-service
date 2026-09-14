@@ -66,7 +66,7 @@ async def get_my_permissions(
     summary="Test organization permission",
 )
 async def permission_test(
-    _: Role = Depends(require_permission("organization.read")),
+    _: Role = Depends(require_permission("organization.update")),
 ) -> dict[str, str]:
     return {"message": "Permission granted"}
 @router.post(

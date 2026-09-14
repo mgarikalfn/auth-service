@@ -12,6 +12,7 @@ from app.models.organization import Organization
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.organization import OrganizationCreate, OrganizationOut
+from app.services.permission_service import assign_default_owner_permissions
 
 
 def _generate_slug(name: str) -> str:
@@ -65,23 +66,9 @@ async def create_organization_for_user(
     user: User,
     session: AsyncSession,
 ) -> Organization:
-    """Create an organization and its initial owner membership.
+    """Create an organization with its Owner role and default permissions."""
 
-    This is the single source of truth for organization creation.
-
-    Creates atomically:
-
-    1. Organization
-    2. Owner role
-    3. Active membership for the user
-
-    The caller controls the transaction commit.
-    """
-
-    slug = await _generate_unique_slug(
-        name,
-        session,
-    )
+    slug = await _generate_unique_slug(name, session)
 
     organization = Organization(
         name=name.strip(),
@@ -106,8 +93,14 @@ async def create_organization_for_user(
     session.add(owner_role)
     session.add(membership)
 
-    return organization
+    await session.flush()
 
+    await assign_default_owner_permissions(
+        role_id=owner_role.id,
+        session=session,
+    )
+
+    return organization
 
 async def create_organization(
     data: OrganizationCreate,
