@@ -1,0 +1,1 @@
+SELECT id, name, organization_id FROM roles WHERE name = 'Owner';

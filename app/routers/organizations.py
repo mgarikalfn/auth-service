@@ -8,12 +8,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
-from app.dependencies.organization import get_current_membership, get_current_role
+from app.dependencies.organization import get_current_membership, get_current_permissions, get_current_role, require_permission
 from app.models.membership import Membership
 from app.models.organization import Organization
+from app.models.permission import Permission
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.organization import OrganizationCreate, OrganizationOut
+from app.schemas.permission import PermissionOut
 from app.schemas.role import RoleOut
 from app.services import organization_service
 
@@ -46,7 +48,27 @@ async def get_my_role(
 
     return RoleOut.model_validate(role)
 
+@router.get(
+    "/{organization_id}/permissions",
+    response_model=list[PermissionOut],
+    summary="Get my organization permissions",
+)
+async def get_my_permissions(
+    permissions: list[Permission] = Depends(get_current_permissions),
+) -> list[PermissionOut]:
+    return [
+        PermissionOut.model_validate(permission)
+        for permission in permissions
+    ]
 
+@router.get(
+    "/{organization_id}/permission-test",
+    summary="Test organization permission",
+)
+async def permission_test(
+    _: Role = Depends(require_permission("organization.read")),
+) -> dict[str, str]:
+    return {"message": "Permission granted"}
 @router.post(
     "",
     response_model=OrganizationOut,
