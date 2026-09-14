@@ -7,8 +7,11 @@ SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
 REFRESH = "/auth/refresh"
 
-_USER = {"email": "auth_test@example.com", "password": "strongpassword1"}
-
+_USER = {
+    "email": "auth_test@example.com", 
+    "password": "strongpassword1",
+    "organization_name": "Test Org"
+}
 
 # ── Signup ────────────────────────────────────────────────────────────────────
 

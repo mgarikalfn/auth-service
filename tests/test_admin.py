@@ -20,8 +20,17 @@ SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
 ADMIN_USERS = "/admin/users"
 
-_ADMIN_CREDS = {"email": "admin_rbac@example.com", "password": "adminpassword1"}
-_USER_CREDS = {"email": "user_rbac@example.com", "password": "userpassword1"}
+_ADMIN_CREDS = {
+    "email": "admin_rbac@example.com", 
+    "password": "adminpassword1",
+    "organization_name": "Admin Org"
+}
+
+_USER_CREDS = {
+    "email": "user_rbac@example.com", 
+    "password": "userpassword1",
+    "organization_name": "User Org"
+}
 
 
 async def _elevate_to_admin(session: AsyncSession, email: str) -> None:

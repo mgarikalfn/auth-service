@@ -7,8 +7,11 @@ SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
 ME = "/users/me"
 
-_USER = {"email": "me_test@example.com", "password": "strongpassword1"}
-
+_USER = {
+    "email": "auth_test@example.com", 
+    "password": "strongpassword1",
+    "organization_name": "Test Org"
+}
 
 async def _get_access_token(client: AsyncClient) -> str:
     """Helper: signup + login and return the access token."""
