@@ -19,7 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.db.init_db import create_db_and_tables
-from app.routers import auth, users, admin,organizations,roles,permissions,memberships
+from app.routers import auth, users, admin,organizations,roles,permissions,memberships,invitations
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -62,6 +62,7 @@ app.include_router(organizations.router)
 app.include_router(roles.router)
 app.include_router(permissions.router)
 app.include_router(memberships.router)
+app.include_router(invitations.router)
 # ── Misc endpoints ────────────────────────────────────────────────────────────
 
 

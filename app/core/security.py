@@ -12,6 +12,9 @@ import bcrypt
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
 
+import hashlib
+import secrets
+
 from app.core.config import settings
 
 # ── Token type sentinels ──────────────────────────────────────────────────────
@@ -91,3 +94,12 @@ def _create_token(subject: str, token_type: str, expire_delta: timedelta) -> str
         "jti": uuid.uuid4().hex,  # Unique JWT identifier (RFC 7519)
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def create_invitation_token() -> str:
+    """Generate a cryptographically secure invitation token."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_invitation_token(token: str) -> str:
+    """Hash an invitation token before storing it in the database."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

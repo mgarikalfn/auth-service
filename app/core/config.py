@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+        # ── Invitations ───────────────────────────────────────────────────────────
+    INVITATION_EXPIRE_HOURS: int = 72
+    APP_URL: str = "http://localhost:8000"
+
 
 @lru_cache
 def get_settings() -> Settings:
