@@ -11,3 +11,7 @@ class PermissionOut(BaseModel):
     description: str | None
 
     model_config = {"from_attributes": True}
+
+
+class RolePermissionsUpdate(BaseModel):
+    permission_ids: list[uuid.UUID]

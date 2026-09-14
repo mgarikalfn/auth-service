@@ -12,6 +12,10 @@ from app.models.role import Role
 from app.schemas.role import RoleCreate, RoleUpdate
 
 
+SYSTEM_ROLE_NAMES = {
+    "owner",
+}
+
 async def get_organization_roles(
     organization_id: uuid.UUID,
     session: AsyncSession,
@@ -112,6 +116,13 @@ async def create_role(
         session,
     )
 
+    normalized_name = data.name.strip().lower()
+
+    if normalized_name in SYSTEM_ROLE_NAMES:
+        raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This role name is reserved",
+    )
     role = Role(
         organization_id=organization_id,
         name=data.name,

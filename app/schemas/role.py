@@ -25,7 +25,6 @@ class RoleCreate(BaseModel):
 class RoleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=100)
     description: str | None = Field(default=None, max_length=500)
-    permission_ids: list[uuid.UUID] | None = None
 
     @field_validator("name")
     @classmethod
@@ -39,8 +38,6 @@ class RoleUpdate(BaseModel):
             raise ValueError("Role name cannot be blank")
 
         return value
-
-
 class RoleOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID

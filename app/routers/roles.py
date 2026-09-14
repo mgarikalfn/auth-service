@@ -12,8 +12,9 @@ from app.dependencies.organization import (
 )
 from app.models.membership import Membership
 from app.models.role import Role
+from app.schemas.permission import PermissionOut, RolePermissionsUpdate
 from app.schemas.role import RoleCreate, RoleOut, RoleUpdate
-from app.services import role_service
+from app.services import permission_service, role_service
 
 router = APIRouter(
     prefix="/organizations/{organization_id}/roles",
@@ -127,3 +128,75 @@ async def delete_role(
         role=role,
         session=session,
     )
+
+@router.get(
+    "/{role_id}/permissions",
+    response_model=list[PermissionOut],
+    summary="Get permissions assigned to a role",
+)
+async def get_role_permissions(
+    organization_id: uuid.UUID,
+    role_id: uuid.UUID,
+    _: Role = Depends(require_permission("roles.read")),
+    session: AsyncSession = Depends(get_session),
+) -> list[PermissionOut]:
+    role = await role_service.get_role(
+        role_id=role_id,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    if role is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=404,
+            detail="Role not found",
+        )
+
+    permissions = await permission_service.get_role_permissions(
+        role_id=role.id,
+        session=session,
+    )
+
+    return [
+        PermissionOut.model_validate(permission)
+        for permission in permissions
+    ]
+
+@router.put(
+    "/{role_id}/permissions",
+    response_model=list[PermissionOut],
+    summary="Replace permissions assigned to a role",
+)
+async def update_role_permissions(
+    organization_id: uuid.UUID,
+    role_id: uuid.UUID,
+    data: RolePermissionsUpdate,
+    _: Role = Depends(require_permission("roles.update")),
+    session: AsyncSession = Depends(get_session),
+) -> list[PermissionOut]:
+    role = await role_service.get_role(
+        role_id=role_id,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    if role is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=404,
+            detail="Role not found",
+        )
+
+    permissions = await permission_service.set_role_permissions(
+        role=role,
+        permission_ids=data.permission_ids,
+        session=session,
+    )
+
+    return [
+        PermissionOut.model_validate(permission)
+        for permission in permissions
+    ]

@@ -2,11 +2,13 @@
 
 import uuid
 
+from fastapi import HTTPException,status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.permissions import SYSTEM_PERMISSIONS
 from app.models.permission import Permission, RolePermission
+from app.models.role import Role
 
 
 async def get_role_permissions(
@@ -111,3 +113,91 @@ async def assign_default_owner_permissions(
         ],
         session=session,
     )
+
+async def get_system_permissions(
+    session: AsyncSession,
+) -> list[Permission]:
+    """Return all available system permissions."""
+
+    statement = (
+        select(Permission)
+        .order_by(Permission.key)
+    )
+
+    result = await session.exec(statement)
+
+    return list(result.all())
+
+
+async def get_role_permissions(
+    role_id: uuid.UUID,
+    session: AsyncSession,
+) -> list[Permission]:
+    """Return all permissions assigned to a role."""
+
+    statement = (
+        select(Permission)
+        .join(
+            RolePermission,
+            RolePermission.permission_id == Permission.id,
+        )
+        .where(RolePermission.role_id == role_id)
+        .order_by(Permission.key)
+    )
+
+    result = await session.exec(statement)
+
+    return list(result.all())
+
+
+async def set_role_permissions(
+    role: Role,
+    permission_ids: list[uuid.UUID],
+    session: AsyncSession,
+) -> list[Permission]:
+    """Replace the permissions assigned to a role."""
+
+    if role.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="System roles cannot have their permissions modified",
+        )
+
+    unique_permission_ids = list(dict.fromkeys(permission_ids))
+
+    if unique_permission_ids:
+        statement = select(Permission).where(
+            Permission.id.in_(unique_permission_ids)
+        )
+
+        result = await session.exec(statement)
+        permissions = list(result.all())
+
+        if len(permissions) != len(unique_permission_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more permissions do not exist",
+            )
+    else:
+        permissions = []
+
+    existing_statement = select(RolePermission).where(
+        RolePermission.role_id == role.id
+    )
+
+    existing_result = await session.exec(existing_statement)
+
+    for role_permission in existing_result.all():
+        await session.delete(role_permission)
+
+    for permission in permissions:
+        session.add(
+            RolePermission(
+                role_id=role.id,
+                permission_id=permission.id,
+            )
+        )
+
+    await session.commit()
+
+    return permissions
