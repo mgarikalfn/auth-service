@@ -8,11 +8,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
-from app.dependencies.organization import get_current_membership
+from app.dependencies.organization import get_current_membership, get_current_role
 from app.models.membership import Membership
 from app.models.organization import Organization
+from app.models.role import Role
 from app.models.user import User
 from app.schemas.organization import OrganizationCreate, OrganizationOut
+from app.schemas.role import RoleOut
 from app.services import organization_service
 
 router = APIRouter(
@@ -30,6 +32,20 @@ async def get_organization(organization_id:UUID,membership:Membership = Depends(
     if organization is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Organization not found")
     return OrganizationOut.model_validate(organization)
+
+
+@router.get(
+    "/{organization_id}/my-role",
+    response_model=RoleOut,
+    summary="Get my role in an organization",
+)
+async def get_my_role(
+    role: Role = Depends(get_current_role),
+) -> RoleOut:
+    """Return the current user's role in the organization."""
+
+    return RoleOut.model_validate(role)
+
 
 @router.post(
     "",

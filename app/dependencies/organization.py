@@ -4,11 +4,13 @@
 import uuid
 
 from fastapi import Depends, HTTPException, status
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
 from app.models.membership import Membership
+from app.models.role import Role
 from app.models.user import User
 from app.services.membership_service import get_active_membership
 
@@ -38,3 +40,20 @@ async def get_current_membership(
 
     return membership
 
+async def get_current_role(
+        membership:Membership = Depends(get_current_membership),
+        session:AsyncSession = Depends(get_session)
+) -> Role:
+    """Resolve the role assigned to the current user's membership. The role must belong to the same organization as the membership. """
+
+    statement = select(Role).where(Role.id == membership.role_id,Role.organization_id == membership.organization_id)
+
+    result = await session.exec(statement)
+    role = result.first()
+
+    if role is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="the membership has an invalid organization role"
+        )
+    return role
