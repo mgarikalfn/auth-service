@@ -12,3 +12,8 @@ class AccessTokenPayload(BaseModel):
     exp: int
     iss: str
     aud: str
+
+class VerifyTokenOut(BaseModel):
+    valid: bool
+    user_id: uuid.UUID
+    organization_id: uuid.UUID | None = None

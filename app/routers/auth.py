@@ -3,13 +3,16 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.limiter import limiter
+from app.core.security import decode_access_token
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.schemas.auth import LoginRequest, OrganizationTokenOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, SignupRequest, TokenResponse
+from app.schemas.token import VerifyTokenOut
 from app.schemas.user import UserOut
 from app.services import auth_service
 
@@ -113,6 +116,24 @@ async def refresh(
         access_token=access_token,
         refresh_token=new_refresh_token,
         token_type="bearer",
+    )
+
+@router.get(
+    "/verify",
+    response_model=VerifyTokenOut,
+)
+async def verify_access_token(
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(
+        HTTPBearer()
+    ),
+) -> VerifyTokenOut:
+    payload = decode_access_token(credentials.credentials)
+
+    return VerifyTokenOut(
+        valid=True,
+        user_id=current_user.id,
+        organization_id=payload.org_id,
     )
 
 
