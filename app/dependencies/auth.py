@@ -15,60 +15,50 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.security import TOKEN_TYPE_ACCESS, decode_token
+from app.core.security import TOKEN_TYPE_ACCESS, decode_access_token, decode_token
 from app.db.session import get_session
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserStatus
 from app.services.user_service import get_user_by_id
 
 # auto_error=False so we can return a clean 401 instead of FastAPI's default 403
 # for a missing Authorization header.
-_bearer_scheme = HTTPBearer(auto_error=False)
-
+bearer_scheme = HTTPBearer()
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(
+        bearer_scheme
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    """Extract the Bearer token, verify it, and return the owning ``User``.
+    payload = decode_access_token(
+        credentials.credentials
+    )
 
-    Raises:
-        401 Unauthorized: if the header is absent, the token is invalid/expired,
-            or the token is not an *access* token.
-    """
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated — provide a Bearer token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    payload = decode_token(credentials.credentials)
-
-    # Reject refresh tokens used where access tokens are expected.
-    if payload.get("type") != TOKEN_TYPE_ACCESS:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token type — an access token is required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    subject: str | None = payload.get("sub")
     try:
-        user_id = uuid.UUID(subject)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+        user_id = uuid.UUID(str(payload.sub))
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Malformed token subject",
+            detail="Invalid access token subject",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = await get_user_by_id(user_id, session)
+    user = await session.get(User, user_id)
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="The user belonging to this token no longer exists",
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    return user
 
+    if user.status != UserStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not active",
+        )
+
+    return user
 
 def require_role(role: UserRole) -> Callable:
     """Return a FastAPI dependency that enforces *role* on the current user.

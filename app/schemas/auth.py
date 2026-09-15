@@ -113,3 +113,15 @@ class CurrentUserOut(BaseModel):
 class UserProfileUpdate(BaseModel):
     email: EmailStr | None = None
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )
+
+class PasswordChangeOut(BaseModel):
+    message: str

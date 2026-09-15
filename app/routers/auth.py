@@ -13,7 +13,7 @@ from app.db.session import get_session
 from app.dependencies.admin import require_admin
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.auth import CurrentUserOut, EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse, UserStatusOut
+from app.schemas.auth import CurrentUserOut, EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordChangeOut, PasswordChangeRequest, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse, UserStatusOut
 from app.schemas.token import VerifyTokenOut
 from app.schemas.user import UserOut
 from app.services import account_service, auth_service, email_verification_service, password_reset_service
@@ -397,4 +397,26 @@ async def deactivate_current_user(
         user_id=updated_user.id,
         status=updated_user.status.value,
         message="Your account has been deactivated successfully.",
+    )
+
+@router.post(
+    "/change-password",
+    response_model=PasswordChangeOut,
+)
+async def change_password(
+    data: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> PasswordChangeOut:
+    await auth_service.change_password(
+        user=current_user,
+        current_password=data.current_password,
+        new_password=data.new_password,
+        session=session,
+    )
+
+    await session.commit()
+
+    return PasswordChangeOut(
+        message="Password changed successfully.",
     )
