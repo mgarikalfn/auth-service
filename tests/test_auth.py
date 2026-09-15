@@ -1,13 +1,17 @@
 """Tests for authentication endpoints: signup, login, and token refresh."""
 
 import uuid
+from fastapi import HTTPException
 import pytest
 from httpx import AsyncClient
 
 from app.core.security import (
+    TOKEN_TYPE_ACCESS,
     TOKEN_TYPE_REFRESH,
+    create_access_token,
     create_organization_access_token,
     create_refresh_token,
+    decode_access_token,
     decode_token,
 )
 
@@ -174,3 +178,40 @@ def test_create_refresh_token_without_organization():
     assert payload["sub"] == str(user_id)
     assert payload["type"] == TOKEN_TYPE_REFRESH
     assert "org_id" not in payload
+
+def test_decode_access_token():
+    user_id = uuid.uuid4()
+
+    token = create_access_token(str(user_id))
+
+    payload = decode_access_token(token)
+
+    assert payload.sub == user_id
+    assert payload.type == TOKEN_TYPE_ACCESS
+    assert payload.org_id is None
+
+def test_decode_organization_access_token():
+    user_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    token = create_organization_access_token(
+        subject=str(user_id),
+        organization_id=str(organization_id),
+    )
+
+    payload = decode_access_token(token)
+
+    assert payload.sub == user_id
+    assert payload.org_id == organization_id
+    assert payload.type == TOKEN_TYPE_ACCESS
+
+
+def test_decode_access_token_rejects_refresh_token():
+    user_id = uuid.uuid4()
+
+    token = create_refresh_token(str(user_id))
+
+    with pytest.raises(HTTPException) as exc_info:
+        decode_access_token(token)
+
+    assert exc_info.value.status_code == 401

@@ -16,6 +16,7 @@ import hashlib
 import secrets
 
 from app.core.config import settings
+from app.schemas.token import AccessTokenPayload
 
 # ── Token type sentinels ──────────────────────────────────────────────────────
 
@@ -135,3 +136,24 @@ def create_organization_access_token(
         ),
         organization_id=organization_id,
     )
+
+def decode_access_token(token: str) -> AccessTokenPayload:
+    payload = decode_token(token)
+
+    if payload.get("type") != TOKEN_TYPE_ACCESS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        return AccessTokenPayload.model_validate(payload)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    
