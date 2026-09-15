@@ -25,6 +25,7 @@ from app.schemas.auth import LoginRequest, SignupRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services import organization_service
 from app.services.membership_service import get_active_membership
+from app.services.password_reset_service import create_password_reset_token, hash_password_reset_token
 from app.services.refresh_token_service import (
     ensure_refresh_token_active,
     get_refresh_token_session,
@@ -266,3 +267,17 @@ async def create_organization_access_token_for_user(
         subject=str(user.id),
         organization_id=str(organization_id),
     )
+
+def test_hash_password_reset_token_is_deterministic():
+    token = "reset-token"
+
+    assert hash_password_reset_token(token) == (
+        hash_password_reset_token(token)
+    )
+
+def test_create_password_reset_token_is_random():
+    first = create_password_reset_token()
+    second = create_password_reset_token()
+
+    assert first != second
+    assert len(first) >= 32

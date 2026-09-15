@@ -51,7 +51,8 @@ def get_settings() -> Settings:
     """Return the singleton Settings instance (cached after first call)."""
     return Settings()
 
-
+    #password
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
 # Module-level convenience alias so other modules can do `from app.core.config import settings`.
 settings: Settings = get_settings()
 
