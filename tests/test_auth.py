@@ -2,10 +2,12 @@
 
 from datetime import datetime, timedelta, timezone
 import uuid
-from fastapi import HTTPException
+from fastapi import HTTPException , status
 import pytest
 from httpx import AsyncClient
+from sqlmodel import select
 
+from app.core.password_policy import validate_password
 from app.core.security import (
     TOKEN_TYPE_ACCESS,
     TOKEN_TYPE_REFRESH,
@@ -14,14 +16,18 @@ from app.core.security import (
     create_refresh_token,
     decode_access_token,
     decode_token,
+    hash_password,
+    verify_password,
 )
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.services import organization_service
 from app.services.membership_service import get_active_membership
+from app.services.password_reset_service import create_password_reset_token, hash_password_reset_token
 from app.services.refresh_token_service import create_refresh_token_session, ensure_refresh_token_active, get_refresh_token_session, hash_refresh_token, issue_refresh_token_session, revoke_refresh_token
 from app.templates.password_reset_email import build_password_reset_email
 
+from sqlmodel.ext.asyncio.session import AsyncSession
 SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
 REFRESH = "/auth/refresh"
@@ -503,3 +509,63 @@ def test_build_password_reset_email():
     assert subject == "Reset your password"
     assert reset_url in html
     assert reset_url in text
+
+def test_hash_password_reset_token_is_deterministic():
+    token = "reset-token"
+
+    assert hash_password_reset_token(token) == (
+        hash_password_reset_token(token)
+    )
+
+def test_create_password_reset_token_is_random():
+    first = create_password_reset_token()
+    second = create_password_reset_token()
+
+    assert first != second
+    assert len(first) >= 32
+
+async def change_password(
+    *,
+    user: User,
+    current_password: str,
+    new_password: str,
+    session: AsyncSession,
+) -> None:
+    if not verify_password(
+        current_password,
+        user.hashed_password,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if current_password == new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "New password must be different "
+                "from the current password"
+            ),
+        )
+
+    validate_password(new_password)
+
+    user.hashed_password = hash_password(new_password)
+
+    session.add(user)
+
+    result = await session.exec(
+        select(RefreshToken).where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None),
+        )
+    )
+
+    now = datetime.now(timezone.utc)
+
+    for refresh_token in result.all():
+        refresh_token.revoked_at = now
+        session.add(refresh_token)
+
+    await session.flush()

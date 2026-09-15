@@ -37,7 +37,7 @@ from app.services.refresh_token_service import (
     get_refresh_token_session,
     issue_refresh_token_session,
     revoke_refresh_token,
-    revoke_refresh_token_family,
+    revoke_token_family,
 )
 
 
@@ -139,6 +139,7 @@ async def refresh_access_token(
     session: AsyncSession,
 ) -> tuple[str, str, uuid.UUID | None]:
     """Rotate the refresh token and issue a new access token."""
+
     payload = decode_token(refresh_token)
 
     if payload.get("type") != TOKEN_TYPE_REFRESH:
@@ -172,6 +173,7 @@ async def refresh_access_token(
         session=session,
     )
 
+    # The JWT and database record must represent the same token.
     if stored_token.jti != jti:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -179,17 +181,23 @@ async def refresh_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Reuse detection: if already revoked, revoke whole token family
-    if stored_token.revoked_at is not None:
-        await revoke_refresh_token_family(
+    if (
+        stored_token.revoked_at is not None
+        and stored_token.replaced_by_jti is not None
+    ):
+        await revoke_token_family(
             family_id=stored_token.family_id,
             session=session,
         )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token reuse detected",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    ensure_refresh_token_active(stored_token)
+    
 
     user = await session.get(User, user_id)
 
@@ -199,8 +207,12 @@ async def refresh_access_token(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Suspended/deactivated users cannot refresh.
+    # Revoke the entire family so existing refresh sessions
+    # cannot continue to be used.
     if user.status != UserStatus.ACTIVE:
-        await revoke_refresh_token_family(
+        await revoke_token_family(
             family_id=stored_token.family_id,
             session=session,
         )
@@ -209,9 +221,15 @@ async def refresh_access_token(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not active",
         )
-    organization_id_value = payload.get("org_id")
 
-    if organization_id_value is None:
+    # Use the organization stored with the refresh-token session.
+    #
+    # The refresh token's DB record is the authoritative session
+    # context rather than allowing the caller to change org_id
+    # by modifying the JWT payload.
+    organization_id = stored_token.organization_id
+
+    if organization_id is None:
         access_token = create_access_token(
             subject=str(user.id),
         )
@@ -224,24 +242,23 @@ async def refresh_access_token(
         )
 
         new_payload = decode_token(new_refresh_token)
+        new_jti = new_payload.get("jti")
+
+        if not new_jti:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create refresh token",
+            )
 
         await revoke_refresh_token(
             refresh_token=stored_token,
-            replaced_by_jti=new_payload["jti"],
+            replaced_by_jti=new_jti,
             session=session,
         )
 
         return access_token, new_refresh_token, None
 
-    try:
-        organization_id = uuid.UUID(organization_id_value)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid organization context",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
+    # Make sure the user still has an active membership.
     membership = await get_active_membership(
         user=user,
         organization_id=organization_id,
@@ -249,6 +266,11 @@ async def refresh_access_token(
     )
 
     if membership is None:
+        await revoke_token_family(
+            family_id=stored_token.family_id,
+            session=session,
+        )
+
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You no longer have access to this organization",
@@ -267,10 +289,17 @@ async def refresh_access_token(
     )
 
     new_payload = decode_token(new_refresh_token)
+    new_jti = new_payload.get("jti")
+
+    if not new_jti:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create refresh token",
+        )
 
     await revoke_refresh_token(
         refresh_token=stored_token,
-        replaced_by_jti=new_payload["jti"],
+        replaced_by_jti=new_jti,
         session=session,
     )
 
@@ -299,62 +328,3 @@ async def create_organization_access_token_for_user(
         organization_id=str(organization_id),
     )
 
-def test_hash_password_reset_token_is_deterministic():
-    token = "reset-token"
-
-    assert hash_password_reset_token(token) == (
-        hash_password_reset_token(token)
-    )
-
-def test_create_password_reset_token_is_random():
-    first = create_password_reset_token()
-    second = create_password_reset_token()
-
-    assert first != second
-    assert len(first) >= 32
-
-async def change_password(
-    *,
-    user: User,
-    current_password: str,
-    new_password: str,
-    session: AsyncSession,
-) -> None:
-    if not verify_password(
-        current_password,
-        user.hashed_password,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect",
-        )
-
-    if current_password == new_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "New password must be different "
-                "from the current password"
-            ),
-        )
-
-    validate_password(new_password)
-
-    user.hashed_password = hash_password(new_password)
-
-    session.add(user)
-
-    result = await session.exec(
-        select(RefreshToken).where(
-            RefreshToken.user_id == user.id,
-            RefreshToken.revoked_at.is_(None),
-        )
-    )
-
-    now = datetime.now(timezone.utc)
-
-    for refresh_token in result.all():
-        refresh_token.revoked_at = now
-        session.add(refresh_token)
-
-    await session.flush()

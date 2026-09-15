@@ -67,6 +67,11 @@ async def get_refresh_token_session(
 def ensure_refresh_token_active(
     refresh_token: RefreshToken,
 ) -> None:
+    """Check if the refresh token is active (synchronous check).
+
+    Token reuse revocation handling is performed prior to this call in
+    the calling auth service when needed.
+    """
     now = datetime.now(timezone.utc)
 
     expires_at = refresh_token.expires_at
@@ -75,6 +80,13 @@ def ensure_refresh_token_active(
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
     if refresh_token.revoked_at is not None:
+        if refresh_token.replaced_by_jti is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token reuse detected",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has been revoked",
@@ -100,6 +112,7 @@ async def revoke_refresh_token(
 
     session.add(refresh_token)
     await session.flush()
+
 
 async def issue_refresh_token_session(
     *,
@@ -134,22 +147,23 @@ async def issue_refresh_token_session(
 
     return token
 
-async def revoke_refresh_token_family(
+
+async def revoke_token_family(
     *,
     family_id: uuid.UUID,
     session: AsyncSession,
 ) -> None:
-    result = await session.exec(
+    result = await session.execute(
         select(RefreshToken).where(
             RefreshToken.family_id == family_id,
             RefreshToken.revoked_at.is_(None),
         )
     )
 
+    tokens = result.scalars().all()
     now = datetime.now(timezone.utc)
 
-    for refresh_token in result.all():
-        refresh_token.revoked_at = now
-        session.add(refresh_token)
+    for token in tokens:
+        token.revoked_at = now
 
     await session.flush()
