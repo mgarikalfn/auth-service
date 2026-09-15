@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.limiter import limiter
@@ -11,10 +12,10 @@ from app.core.security import decode_access_token
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.auth import LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, SignupRequest, TokenResponse
+from app.schemas.auth import EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse
 from app.schemas.token import VerifyTokenOut
 from app.schemas.user import UserOut
-from app.services import auth_service, password_reset_service
+from app.services import auth_service, email_verification_service, password_reset_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -185,3 +186,74 @@ async def confirm_password_reset(
         message="Password has been reset successfully.",
     )
 
+
+@router.post(
+    "/verify-email",
+    response_model=EmailVerificationOut,
+)
+async def verify_email(
+    token: str,
+    session: AsyncSession = Depends(get_session),
+) -> EmailVerificationOut:
+    await email_verification_service.verify_email(
+        raw_token=token,
+        session=session,
+    )
+
+    await session.commit()
+
+    return EmailVerificationOut(
+        message="Email verified successfully.",
+    )
+
+@router.post(
+    "/verify-email/resend",
+    response_model=ResendVerificationOut,
+)
+async def resend_verification_email(
+    data: ResendVerificationRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ResendVerificationOut:
+    normalized_email = data.email.strip().lower()
+
+    result = await session.exec(
+        select(User).where(
+            User.email == normalized_email
+        )
+    )
+
+    user = result.first()
+
+    # Do not reveal whether the account exists.
+    if user is None:
+        return ResendVerificationOut(
+            message=(
+                "If an account exists for this email "
+                "and it is not verified, a verification "
+                "email has been sent."
+            )
+        )
+
+    if user.email_verified_at is not None:
+        return ResendVerificationOut(
+            message=(
+                "If an account exists for this email "
+                "and it is not verified, a verification "
+                "email has been sent."
+            )
+        )
+
+    await email_verification_service.send_verification_email(
+        user=user,
+        session=session,
+    )
+
+    await session.commit()
+
+    return ResendVerificationOut(
+        message=(
+            "If an account exists for this email "
+            "and it is not verified, a verification "
+            "email has been sent."
+        )
+    )

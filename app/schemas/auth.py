@@ -82,3 +82,12 @@ class PasswordResetRequestOut(BaseModel):
 
 class PasswordResetConfirmOut(BaseModel):
     message: str
+
+class EmailVerificationOut(BaseModel):
+    message: str
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+class ResendVerificationOut(BaseModel):
+    message: str
