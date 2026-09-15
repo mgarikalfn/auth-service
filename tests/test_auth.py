@@ -1,5 +1,6 @@
 """Tests for authentication endpoints: signup, login, and token refresh."""
 
+from datetime import datetime, timedelta, timezone
 import uuid
 from fastapi import HTTPException
 import pytest
@@ -14,6 +15,8 @@ from app.core.security import (
     decode_access_token,
     decode_token,
 )
+from app.models.refresh_token import RefreshToken
+from app.services.refresh_token_service import create_refresh_token_session, ensure_refresh_token_active, get_refresh_token_session, hash_refresh_token, issue_refresh_token_session, revoke_refresh_token
 
 SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
@@ -215,3 +218,106 @@ def test_decode_access_token_rejects_refresh_token():
         decode_access_token(token)
 
     assert exc_info.value.status_code == 401
+
+def test_hash_refresh_token_is_deterministic():
+    token = "test-refresh-token"
+
+    assert hash_refresh_token(token) == hash_refresh_token(token)
+
+def test_hash_refresh_token_produces_different_hashes():
+    assert hash_refresh_token("token-a") != hash_refresh_token("token-b")
+
+
+async def test_create_and_get_refresh_token_session(
+    session,
+):
+    user_id = uuid.uuid4()
+    token = "test-refresh-token"
+    jti = uuid.uuid4().hex
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+    created = await create_refresh_token_session(
+        token=token,
+        user_id=user_id,
+        organization_id=None,
+        expires_at=expires_at,
+        jti=jti,
+        session=session,
+    )
+
+    found = await get_refresh_token_session(
+        token=token,
+        session=session,
+    )
+
+    assert found.id == created.id
+    assert found.user_id == user_id
+    assert found.jti == jti
+    assert found.token_hash == hash_refresh_token(token)
+
+
+async def test_revoke_refresh_token(
+    session,
+):
+    refresh_token = RefreshToken(
+        jti=uuid.uuid4().hex,
+        user_id=uuid.uuid4(),
+        token_hash=hash_refresh_token("token"),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+    )
+
+    session.add(refresh_token)
+    await session.flush()
+
+    await revoke_refresh_token(
+        refresh_token=refresh_token,
+        replaced_by_jti="new-jti",
+        session=session,
+    )
+
+    assert refresh_token.revoked_at is not None
+    assert refresh_token.replaced_by_jti == "new-jti"
+
+
+def test_ensure_refresh_token_active_rejects_revoked():
+    refresh_token = RefreshToken(
+        jti=uuid.uuid4().hex,
+        user_id=uuid.uuid4(),
+        token_hash="hash",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        revoked_at=datetime.now(timezone.utc),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        ensure_refresh_token_active(refresh_token)
+
+    assert exc_info.value.status_code == 401
+
+async def test_issue_refresh_token_session(
+    session,
+):
+    user_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    token = await issue_refresh_token_session(
+        user_id=user_id,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    assert token
+
+    payload = decode_token(token)
+
+    assert payload["sub"] == str(user_id)
+    assert payload["org_id"] == str(organization_id)
+    assert payload["type"] == TOKEN_TYPE_REFRESH
+
+    stored = await get_refresh_token_session(
+        token=token,
+        session=session,
+    )
+
+    assert stored.user_id == user_id
+    assert stored.organization_id == organization_id
+    assert stored.jti == payload["jti"]

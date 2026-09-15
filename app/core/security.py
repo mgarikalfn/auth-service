@@ -156,4 +156,35 @@ def decode_access_token(token: str) -> AccessTokenPayload:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    
+
+def create_refresh_token_with_jti(
+    subject: str,
+    organization_id: str | None = None,
+) -> tuple[str, str, datetime]:
+    now = datetime.now(timezone.utc)
+    jti = uuid.uuid4().hex
+    expires_at = now + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
+
+    payload: dict[str, Any] = {
+        "sub": subject,
+        "type": TOKEN_TYPE_REFRESH,
+        "iat": now,
+        "exp": expires_at,
+        "jti": jti,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
+    }
+
+    if organization_id is not None:
+        payload["org_id"] = organization_id
+
+    token = jwt.encode(
+        payload,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+    return token, jti, expires_at
+   
