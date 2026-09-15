@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request,status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -10,12 +10,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.limiter import limiter
 from app.core.security import decode_access_token
 from app.db.session import get_session
+from app.dependencies.admin import require_admin
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.auth import EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse
+from app.schemas.auth import EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse, UserStatusOut
 from app.schemas.token import VerifyTokenOut
 from app.schemas.user import UserOut
-from app.services import auth_service, email_verification_service, password_reset_service
+from app.services import account_service, auth_service, email_verification_service, password_reset_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -256,4 +257,107 @@ async def resend_verification_email(
             "and it is not verified, a verification "
             "email has been sent."
         )
+    )
+
+@router.patch(
+    "/users/{user_id}/suspend",
+    response_model=UserStatusOut,
+)
+async def suspend_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> UserStatusOut:
+
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators cannot suspend themselves",
+        )
+    
+    user = await session.get(User, user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    updated_user = await account_service.suspend_user(
+        user=user,
+        session=session,
+    )
+
+    await session.commit()
+
+    return UserStatusOut(
+        user_id=updated_user.id,
+        status=updated_user.status.value,
+        message="User suspended successfully.",
+    )
+
+@router.patch(
+    "/users/{user_id}/reactivate",
+    response_model=UserStatusOut,
+)
+async def reactivate_user(
+    user_id: uuid.UUID,
+    _: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> UserStatusOut:
+    user = await session.get(User, user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    updated_user = await account_service.reactivate_user(
+        user=user,
+        session=session,
+    )
+
+    await session.commit()
+
+    return UserStatusOut(
+        user_id=updated_user.id,
+        status=updated_user.status.value,
+        message="User reactivated successfully.",
+    )
+
+@router.patch(
+    "/users/{user_id}/deactivate",
+    response_model=UserStatusOut,
+)
+async def deactivate_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> UserStatusOut:
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators cannot deactivate themselves",
+        )
+
+    user = await session.get(User, user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    updated_user = await account_service.deactivate_user(
+        user=user,
+        session=session,
+    )
+
+    await session.commit()
+
+    return UserStatusOut(
+        user_id=updated_user.id,
+        status=updated_user.status.value,
+        message="User deactivated successfully.",
     )

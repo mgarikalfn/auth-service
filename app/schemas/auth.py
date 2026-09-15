@@ -91,3 +91,8 @@ class ResendVerificationRequest(BaseModel):
 
 class ResendVerificationOut(BaseModel):
     message: str
+
+class UserStatusOut(BaseModel):
+    user_id: uuid.UUID
+    status: str
+    message: str
