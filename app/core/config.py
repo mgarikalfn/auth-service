@@ -46,13 +46,14 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str | None = None
     EMAIL_FROM: str = "onboarding@resend.dev"
     EMAIL_FROM_NAME: str = "Auth Service"
+    #password
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
 @lru_cache
 def get_settings() -> Settings:
     """Return the singleton Settings instance (cached after first call)."""
     return Settings()
 
-    #password
-    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+    
 # Module-level convenience alias so other modules can do `from app.core.config import settings`.
 settings: Settings = get_settings()
 

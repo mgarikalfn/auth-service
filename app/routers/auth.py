@@ -11,10 +11,10 @@ from app.core.security import decode_access_token
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.auth import LoginRequest, OrganizationTokenOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, SignupRequest, TokenResponse
+from app.schemas.auth import LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, SignupRequest, TokenResponse
 from app.schemas.token import VerifyTokenOut
 from app.schemas.user import UserOut
-from app.services import auth_service
+from app.services import auth_service, password_reset_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -143,4 +143,45 @@ async def verify_access_token(
         organization_id=payload.org_id,
     )
 
+@router.post(
+    "/password-reset/request",
+    response_model=PasswordResetRequestOut,
+)
+async def request_password_reset(
+    data: PasswordResetRequest,
+    session: AsyncSession = Depends(get_session),
+) -> PasswordResetRequestOut:
+    await password_reset_service.request_password_reset(
+        email=data.email,
+        session=session,
+    )
+
+    await session.commit()
+
+    return PasswordResetRequestOut(
+        message=(
+            "If an account exists for this email, "
+            "a password reset link has been sent."
+        )
+    )
+
+@router.post(
+    "/password-reset/confirm",
+    response_model=PasswordResetConfirmOut,
+)
+async def confirm_password_reset(
+    data: PasswordResetConfirm,
+    session: AsyncSession = Depends(get_session),
+) -> PasswordResetConfirmOut:
+    await password_reset_service.reset_password(
+        raw_token=data.token,
+        new_password=data.new_password,
+        session=session,
+    )
+
+    await session.commit()
+
+    return PasswordResetConfirmOut(
+        message="Password has been reset successfully.",
+    )
 
