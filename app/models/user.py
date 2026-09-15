@@ -56,3 +56,13 @@ class User(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+    failed_login_attempts: int = Field(
+    default=0,
+    nullable=False,
+    )
+
+    locked_until: datetime | None = Field(
+        default=None,
+        nullable=True,
+    )

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     #password
     PASSWORD_RESET_EXPIRE_MINUTES: int = 30
     EMAIL_VERIFICATION_EXPIRE_MINUTES: int = 60
+
+    LOGIN_MAX_FAILED_ATTEMPTS: int = 5
+    LOGIN_LOCKOUT_MINUTES: int = 15
 @lru_cache
 def get_settings() -> Settings:
     """Return the singleton Settings instance (cached after first call)."""

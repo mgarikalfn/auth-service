@@ -29,6 +29,7 @@ from app.models.user import User, UserStatus
 from app.schemas.auth import LoginRequest, SignupRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services import organization_service
+from app.services.login_security_service import record_failed_login, record_successful_login
 from app.services.membership_service import get_active_membership
 from app.services.password_reset_service import create_password_reset_token, hash_password_reset_token
 from app.services.refresh_token_service import (
@@ -99,6 +100,11 @@ async def login(data: LoginRequest, session: AsyncSession) -> TokenResponse:
     user: User | None = result.first()
 
     if user is None or not verify_password(data.password, user.hashed_password):
+        if user is not None:
+            record_failed_login(user)
+            session.add(user)
+            await session.flush()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -110,6 +116,9 @@ async def login(data: LoginRequest, session: AsyncSession) -> TokenResponse:
             detail="Account is not active",
         )
 
+    record_successful_login(user)
+    session.add(user)
+    await session.flush()
     # Issue persistent refresh token session
     refresh_token = await issue_refresh_token_session(
         user_id=user.id,
