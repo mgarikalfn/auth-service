@@ -9,6 +9,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
+from app.core.password_policy import validate_password
 from app.core.security import (
     create_invitation_token,
     create_organization_access_token,
@@ -273,6 +274,7 @@ async def accept_invitation(
         user = user_result.first()
 
         if user is None:
+            validate_password(password);
             user = User(
                 email=invited_email,
                 hashed_password=hash_password(password),

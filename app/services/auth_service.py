@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from app.core.password_policy import validate_password
 from app.models.refresh_token import RefreshToken
 from app.services import email_verification_service
 
@@ -327,6 +328,8 @@ async def change_password(
                 "from the current password"
             ),
         )
+
+    validate_password(new_password)
 
     user.hashed_password = hash_password(new_password)
 
