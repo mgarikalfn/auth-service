@@ -60,20 +60,27 @@ async def login(
 
 @router.post(
     "/refresh",
-    response_model=TokenResponse,
-    summary="Refresh an access token",
+    response_model=RefreshTokenOut,
 )
-async def refresh(
-    data: RefreshRequest,
+async def refresh_token(
+    data: RefreshTokenRequest,
     session: AsyncSession = Depends(get_session),
-) -> TokenResponse:
-    """Exchange a valid **refresh** token for a fresh access + refresh token pair.
+) -> RefreshTokenOut:
+    access_token, refresh_token, organization_id = (
+        await auth_service.refresh_access_token(
+            refresh_token=data.refresh_token,
+            session=session,
+        )
+    )
 
-    Submitting an *access* token here is explicitly rejected (401) to prevent
-    token-confusion attacks.
-    """
-    return await auth_service.refresh_access_token(data, session)
+    await session.commit()
 
+    return RefreshTokenOut(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        organization_id=organization_id,
+    )
 @router.post(
     "/organizations/{organization_id}/token",
     response_model=OrganizationTokenOut,

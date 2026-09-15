@@ -16,6 +16,9 @@ from app.core.security import (
     decode_token,
 )
 from app.models.refresh_token import RefreshToken
+from app.models.user import User
+from app.services import organization_service
+from app.services.membership_service import get_active_membership
 from app.services.refresh_token_service import create_refresh_token_session, ensure_refresh_token_active, get_refresh_token_session, hash_refresh_token, issue_refresh_token_session, revoke_refresh_token
 
 SIGNUP = "/auth/signup"
@@ -321,3 +324,120 @@ async def test_issue_refresh_token_session(
     assert stored.user_id == user_id
     assert stored.organization_id == organization_id
     assert stored.jti == payload["jti"]
+
+async def test_refresh_rotates_refresh_token(
+    client,
+    session,
+):
+    # 1. Create and persist a test user
+    user = User(
+        email="testuser@example.com",
+        hashed_password="hashed_password_here",
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    # 2. Issue persistent refresh token session
+    refresh_token = await issue_refresh_token_session(
+        user_id=user.id,
+        organization_id=None,
+        session=session,
+    )
+    await session.commit()
+
+    # 3. Call the refresh endpoint
+    response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["access_token"]
+    assert data["refresh_token"]
+    assert data["refresh_token"] != refresh_token
+
+async def test_old_refresh_token_is_rejected_after_rotation(
+    client,
+    session,
+):
+    # 1. Setup user & issue token
+    user = User(email="old_token@example.com", hashed_password="hashed_password")
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    refresh_token = await issue_refresh_token_session(
+        user_id=user.id,
+        organization_id=None,
+        session=session,
+    )
+    await session.commit()
+
+    # 2. First refresh succeeds and rotates the token
+    response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert response.status_code == 200
+    new_refresh_token = response.json()["refresh_token"]
+
+    # 3. Old token MUST be rejected
+    old_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert old_response.status_code == 401
+
+    # 4. New token MUST work
+    new_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": new_refresh_token},
+    )
+    assert new_response.status_code == 200
+
+
+async def test_refresh_preserves_organization_context(
+    client,
+    session,
+):
+    # 1. Setup user
+    user = User(email="org_token@example.com", hashed_password="hashed_password")
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    # 2. Create organization and capture the returned entity/id
+    org = await organization_service.create_organization_for_user(
+        name="Test Org",
+        user=user,
+        session=session,
+    )
+    await session.commit()
+    await session.refresh(org)
+
+    organization_id = org.id
+
+    # 3. Issue refresh token with the actual organization_id
+    refresh_token = await issue_refresh_token_session(
+        user_id=user.id,
+        organization_id=organization_id,
+        session=session,
+    )
+    await session.commit()
+
+    # 4. Refresh and verify org_id persists
+    response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["organization_id"] == str(organization_id)
+
+    payload = decode_token(data["access_token"])
+    assert payload["org_id"] == str(organization_id)

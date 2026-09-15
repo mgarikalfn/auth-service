@@ -1,7 +1,7 @@
 """Authentication business logic: signup, login, and token refresh.
 
 Route handlers delegate entirely to these functions — they contain no business
-logic themselves.  Each function raises the appropriate ``HTTPException`` so
+logic themselves. Each function raises the appropriate ``HTTPException`` so
 the caller gets a clean, consistent JSON error body.
 """
 
@@ -15,32 +15,33 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.security import (
     TOKEN_TYPE_REFRESH,
     create_access_token,
-    create_refresh_token,
+    create_organization_access_token,
     decode_token,
     hash_password,
     verify_password,
 )
-
-from app.models.user import User 
-from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, TokenResponse 
+from app.models.user import User
+from app.schemas.auth import LoginRequest, SignupRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services import organization_service
-
-from app.core.security import create_organization_access_token
 from app.services.membership_service import get_active_membership
+from app.services.refresh_token_service import (
+    ensure_refresh_token_active,
+    get_refresh_token_session,
+    issue_refresh_token_session,
+    revoke_refresh_token,
+)
 
 
 async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
     """Register a new user and create their first organization.
 
     Creates atomically:
-
     1. User
     2. Organization
     3. Owner role
     4. Active membership
     """
-
     result = await session.exec(
         select(User).where(User.email == data.email)
     )
@@ -58,12 +59,6 @@ async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
 
     session.add(user)
 
-    # Creates:
-    # - Organization
-    # - Owner role
-    # - Active membership
-    #
-    # It deliberately does NOT commit.
     await organization_service.create_organization_for_user(
         name=data.organization_name,
         user=user,
@@ -74,7 +69,6 @@ async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
         await session.commit()
     except IntegrityError:
         await session.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -84,19 +78,13 @@ async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
         )
 
     await session.refresh(user)
-
     return UserOut.model_validate(user)
-
 
 
 async def login(data: LoginRequest, session: AsyncSession) -> TokenResponse:
     """Authenticate a user and issue an access + refresh token pair.
 
-    Both credentials must be correct; intentionally the same error message is
-    returned for a wrong email *and* a wrong password to prevent user enumeration.
-
-    Raises:
-        401 Unauthorized: if credentials are invalid.
+    Persists the refresh token session to the database.
     """
     result = await session.exec(select(User).where(User.email == data.email))
     user: User | None = result.first()
@@ -107,89 +95,27 @@ async def login(data: LoginRequest, session: AsyncSession) -> TokenResponse:
             detail="Invalid email or password",
         )
 
-    return TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
-    )
-
-
-async def refresh_access_token(
-    data: RefreshRequest, session: AsyncSession
-) -> TokenResponse:
-    """Exchange a valid refresh token for a new access + refresh token pair.
-
-    The ``type`` claim inside the JWT is checked explicitly — an *access* token
-    cannot be used here, preventing token confusion attacks.
-
-    Raises:
-        401 Unauthorized: if the token is invalid, expired, or the wrong type.
-    """
-    payload = decode_token(data.refresh_token)
-
-    if payload.get("type") != TOKEN_TYPE_REFRESH:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token type — a refresh token is required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    user_id_str: str | None = payload.get("sub")
-    try:
-        user_id = uuid.UUID(user_id_str) if user_id_str else None
-    except (TypeError, ValueError):
-        user_id = None
-
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Malformed token subject",
-        )
-
-    result = await session.exec(select(User).where(User.id == user_id))
-    user: User | None = result.first()
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User belonging to this token no longer exists",
-        )
-
-    return TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
-    )
-
-async def create_organization_access_token_for_user(
-    *,
-    user: User,
-    organization_id: uuid.UUID,
-    session: AsyncSession,
-) -> str:
-    """Create an organization-scoped access token for an active member."""
-
-    membership = await get_active_membership(
-        user=user,
-        organization_id=organization_id,
+    # Issue persistent refresh token session
+    refresh_token = await issue_refresh_token_session(
+        user_id=user.id,
+        organization_id=None,
         session=session,
     )
 
-    if membership is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this organization",
-        )
-
-    return create_organization_access_token(
-        subject=str(user.id),
-        organization_id=str(organization_id),
+    return TokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=refresh_token,
+        token_type="bearer",
     )
 
 
 async def refresh_access_token(
-    data: RefreshRequest,
+    *,
+    refresh_token: str,
     session: AsyncSession,
-) -> TokenResponse:
-    payload = decode_token(data.refresh_token)
+) -> tuple[str, str, uuid.UUID | None]:
+    """Rotate the refresh token and issue a new access token."""
+    payload = decode_token(refresh_token)
 
     if payload.get("type") != TOKEN_TYPE_REFRESH:
         raise HTTPException(
@@ -199,8 +125,9 @@ async def refresh_access_token(
         )
 
     subject = payload.get("sub")
+    jti = payload.get("jti")
 
-    if not subject:
+    if not subject or not jti:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -216,6 +143,20 @@ async def refresh_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    stored_token = await get_refresh_token_session(
+        token=refresh_token,
+        session=session,
+    )
+
+    if stored_token.jti != jti:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    ensure_refresh_token_active(stored_token)
+
     user = await session.get(User, user_id)
 
     if user is None:
@@ -228,13 +169,25 @@ async def refresh_access_token(
     organization_id_value = payload.get("org_id")
 
     if organization_id_value is None:
-        access_token = create_access_token(str(user.id))
-        new_refresh_token = create_refresh_token(str(user.id))
-        return TokenResponse(
-            access_token=access_token,
-            refresh_token=new_refresh_token,
-            token_type="bearer",
+        access_token = create_access_token(
+            subject=str(user.id),
         )
+
+        new_refresh_token = await issue_refresh_token_session(
+            user_id=user.id,
+            organization_id=None,
+            session=session,
+        )
+
+        new_payload = decode_token(new_refresh_token)
+
+        await revoke_refresh_token(
+            refresh_token=stored_token,
+            replaced_by_jti=new_payload["jti"],
+            session=session,
+        )
+
+        return access_token, new_refresh_token, None
 
     try:
         organization_id = uuid.UUID(organization_id_value)
@@ -262,13 +215,43 @@ async def refresh_access_token(
         organization_id=str(organization_id),
     )
 
-    new_refresh_token = create_refresh_token(
-        subject=str(user.id),
-        organization_id=str(organization_id),
+    new_refresh_token = await issue_refresh_token_session(
+        user_id=user.id,
+        organization_id=organization_id,
+        session=session,
     )
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=new_refresh_token,
-        token_type="bearer",
+    new_payload = decode_token(new_refresh_token)
+
+    await revoke_refresh_token(
+        refresh_token=stored_token,
+        replaced_by_jti=new_payload["jti"],
+        session=session,
+    )
+
+    return access_token, new_refresh_token, organization_id
+
+
+async def create_organization_access_token_for_user(
+    *,
+    user: User,
+    organization_id: uuid.UUID,
+    session: AsyncSession,
+) -> str:
+    """Create an organization-scoped access token for an active member."""
+    membership = await get_active_membership(
+        user=user,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this organization",
+        )
+
+    return create_organization_access_token(
+        subject=str(user.id),
+        organization_id=str(organization_id),
     )
