@@ -26,6 +26,9 @@ from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, TokenR
 from app.schemas.user import UserOut
 from app.services import organization_service
 
+from app.core.security import create_organization_access_token
+from app.services.membership_service import get_active_membership
+
 
 async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
     """Register a new user and create their first organization.
@@ -154,4 +157,29 @@ async def refresh_access_token(
     return TokenResponse(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
+    )
+
+async def create_organization_access_token_for_user(
+    *,
+    user: User,
+    organization_id: uuid.UUID,
+    session: AsyncSession,
+) -> str:
+    """Create an organization-scoped access token for an active member."""
+
+    membership = await get_active_membership(
+        user=user,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this organization",
+        )
+
+    return create_organization_access_token(
+        subject=str(user.id),
+        organization_id=str(organization_id),
     )

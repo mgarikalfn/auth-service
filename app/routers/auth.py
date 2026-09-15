@@ -1,11 +1,15 @@
 """Authentication routes: signup, login (rate-limited), and token refresh."""
 
+import uuid
+
 from fastapi import APIRouter, Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.limiter import limiter
 from app.db.session import get_session
-from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, TokenResponse
+from app.dependencies.auth import get_current_user
+from app.models.user import User
+from app.schemas.auth import LoginRequest, OrganizationTokenOut, RefreshRequest, SignupRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services import auth_service
 
@@ -66,3 +70,27 @@ async def refresh(
     token-confusion attacks.
     """
     return await auth_service.refresh_access_token(data, session)
+
+@router.post(
+    "/organizations/{organization_id}/token",
+    response_model=OrganizationTokenOut,
+)
+async def create_organization_token(
+    organization_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> OrganizationTokenOut:
+    """Issue an access token scoped to an organization."""
+
+    access_token = await auth_service.create_organization_access_token_for_user(
+        user=current_user,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    return OrganizationTokenOut(
+        access_token=access_token,
+        token_type="bearer",
+        organization_id=organization_id,
+    )
+

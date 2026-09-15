@@ -70,6 +70,8 @@ def decode_token(token: str) -> dict[str, Any]:
             token,
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
         )
         return payload
     except JWTError:
@@ -83,17 +85,32 @@ def decode_token(token: str) -> dict[str, Any]:
 # ── Private helpers ───────────────────────────────────────────────────────────
 
 
-def _create_token(subject: str, token_type: str, expire_delta: timedelta) -> str:
-    """Internal factory — build and sign a JWT with standard claims."""
+def _create_token(
+    subject: str,
+    token_type: str,
+    expire_delta: timedelta,
+    organization_id: str | None = None,
+) -> str:
     now = datetime.now(timezone.utc)
+
     payload: dict[str, Any] = {
-        "sub": subject,           # Subject (user UUID)
-        "type": token_type,       # "access" | "refresh"  — validated on decode
-        "iat": now,               # Issued at
-        "exp": now + expire_delta,# Expiry
-        "jti": uuid.uuid4().hex,  # Unique JWT identifier (RFC 7519)
+        "sub": subject,
+        "type": token_type,
+        "iat": now,
+        "exp": now + expire_delta,
+        "jti": uuid.uuid4().hex,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
     }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+    if organization_id is not None:
+        payload["org_id"] = organization_id
+
+    return jwt.encode(
+        payload,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
 
 def create_invitation_token() -> str:
     """Generate a cryptographically secure invitation token."""
@@ -103,3 +120,16 @@ def create_invitation_token() -> str:
 def hash_invitation_token(token: str) -> str:
     """Hash an invitation token before storing it in the database."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def create_organization_access_token(
+    subject: str,
+    organization_id: str,
+) -> str:
+    return _create_token(
+        subject=subject,
+        token_type=TOKEN_TYPE_ACCESS,
+        expire_delta=timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        ),
+        organization_id=organization_id,
+    )

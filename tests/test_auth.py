@@ -16,6 +16,7 @@ _USER = {
 # ── Signup ────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_signup_success(client: AsyncClient) -> None:
     """A valid signup returns 201 with the user's public profile."""
     response = await client.post(SIGNUP, json=_USER)
@@ -27,6 +28,7 @@ async def test_signup_success(client: AsyncClient) -> None:
     assert "hashed_password" not in body
 
 
+@pytest.mark.asyncio
 async def test_signup_duplicate_email_returns_409(client: AsyncClient) -> None:
     """Registering the same email twice returns 409 Conflict."""
     await client.post(SIGNUP, json=_USER)
@@ -36,6 +38,7 @@ async def test_signup_duplicate_email_returns_409(client: AsyncClient) -> None:
     assert "already registered" in response.json()["detail"]
 
 
+@pytest.mark.asyncio
 async def test_signup_short_password_returns_422(client: AsyncClient) -> None:
     """Passwords shorter than 8 characters are rejected at the schema layer."""
     response = await client.post(
@@ -44,6 +47,7 @@ async def test_signup_short_password_returns_422(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.asyncio
 async def test_signup_invalid_email_returns_422(client: AsyncClient) -> None:
     """Non-email strings for the email field are rejected."""
     response = await client.post(
@@ -55,6 +59,7 @@ async def test_signup_invalid_email_returns_422(client: AsyncClient) -> None:
 # ── Login ─────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_login_success_returns_token_pair(client: AsyncClient) -> None:
     """A correct login returns both an access token and a refresh token."""
     await client.post(SIGNUP, json=_USER)
@@ -70,6 +75,7 @@ async def test_login_success_returns_token_pair(client: AsyncClient) -> None:
     assert len(body["refresh_token"]) > 0
 
 
+@pytest.mark.asyncio
 async def test_login_wrong_password_returns_401(client: AsyncClient) -> None:
     """A wrong password returns 401 with the same generic message."""
     await client.post(SIGNUP, json=_USER)
@@ -80,6 +86,7 @@ async def test_login_wrong_password_returns_401(client: AsyncClient) -> None:
     assert "Invalid" in response.json()["detail"]
 
 
+@pytest.mark.asyncio
 async def test_login_nonexistent_user_returns_401(client: AsyncClient) -> None:
     """A login attempt for a non-existent user returns 401 (not 404) to prevent
     user enumeration."""
@@ -92,6 +99,7 @@ async def test_login_nonexistent_user_returns_401(client: AsyncClient) -> None:
 # ── Refresh ───────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_refresh_with_valid_refresh_token_succeeds(client: AsyncClient) -> None:
     """A valid refresh token yields a new access token."""
     await client.post(SIGNUP, json=_USER)
@@ -105,6 +113,7 @@ async def test_refresh_with_valid_refresh_token_succeeds(client: AsyncClient) ->
     assert body["access_token"] != tokens["access_token"]
 
 
+@pytest.mark.asyncio
 async def test_refresh_with_access_token_is_rejected(client: AsyncClient) -> None:
     """Using an access token where a refresh token is expected returns 401."""
     await client.post(SIGNUP, json=_USER)
@@ -114,6 +123,7 @@ async def test_refresh_with_access_token_is_rejected(client: AsyncClient) -> Non
     assert response.status_code == 401
 
 
+@pytest.mark.asyncio
 async def test_refresh_with_garbage_token_returns_401(client: AsyncClient) -> None:
     """A completely invalid string returns 401."""
     response = await client.post(REFRESH, json={"refresh_token": "this.is.garbage"})

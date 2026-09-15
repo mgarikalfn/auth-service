@@ -49,3 +49,8 @@ class RefreshRequest(BaseModel):
     """Payload for ``POST /auth/refresh``."""
 
     refresh_token: str
+
+class OrganizationTokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    organization_id: uuid.UUID

@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # ── JWT ───────────────────────────────────────────────────────────────────
     SECRET_KEY: str = "CHANGE_ME_in_production"
     ALGORITHM: str = "HS256"
+
+    JWT_ISSUER: str = "auth-service"
+    JWT_AUDIENCE: str = "saas-api"
+    
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
