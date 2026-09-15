@@ -11,6 +11,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from app.services import email_verification_service
+
 
 from app.core.security import (
     TOKEN_TYPE_REFRESH,
@@ -67,6 +69,8 @@ async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
         session=session,
     )
 
+    await email_verification_service.send_verification_email(user=user,session=session)
+    
     try:
         await session.commit()
     except IntegrityError:
