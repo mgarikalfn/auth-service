@@ -1,5 +1,7 @@
 """Pydantic v2 schemas for authentication endpoints."""
 
+import uuid
+
 from pydantic import BaseModel, EmailStr, field_validator,Field
 
 
@@ -54,3 +56,13 @@ class OrganizationTokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     organization_id: uuid.UUID
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshTokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    organization_id: uuid.UUID | None = None

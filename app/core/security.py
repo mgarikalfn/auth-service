@@ -50,14 +50,16 @@ def create_access_token(subject: str) -> str:
     )
 
 
-def create_refresh_token(subject: str) -> str:
-    """Mint a long-lived JWT refresh token for *subject* (user UUID string)."""
+def create_refresh_token(
+    subject: str,
+    organization_id: str | None = None,
+) -> str:
     return _create_token(
         subject=subject,
         token_type=TOKEN_TYPE_REFRESH,
         expire_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        organization_id=organization_id,
     )
-
 
 def decode_token(token: str) -> dict[str, Any]:
     """Decode and verify *token*.

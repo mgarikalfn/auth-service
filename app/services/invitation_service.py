@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.config import settings
 from app.core.security import (
     create_invitation_token,
+    create_organization_access_token,
     hash_invitation_token,
 )
 from app.models.invitation import Invitation, InvitationStatus
@@ -318,8 +319,8 @@ async def accept_invitation(
     await session.refresh(membership)
     await session.refresh(invitation)
 
-    access_token = create_access_token(str(user.id))
-    refresh_token = create_refresh_token(str(user.id))
+    access_token = create_organization_access_token(subject=str(user.id),organization_id=str(invitation.organization_id))
+    refresh_token = create_refresh_token(subject=str(user.id),organization_id=str(invitation.organization_id))
 
     return (
         user,

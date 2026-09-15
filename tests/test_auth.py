@@ -1,7 +1,15 @@
 """Tests for authentication endpoints: signup, login, and token refresh."""
 
+import uuid
 import pytest
 from httpx import AsyncClient
+
+from app.core.security import (
+    TOKEN_TYPE_REFRESH,
+    create_organization_access_token,
+    create_refresh_token,
+    decode_token,
+)
 
 SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
@@ -128,3 +136,41 @@ async def test_refresh_with_garbage_token_returns_401(client: AsyncClient) -> No
     """A completely invalid string returns 401."""
     response = await client.post(REFRESH, json={"refresh_token": "this.is.garbage"})
     assert response.status_code == 401
+
+
+# ── Organization Token Generation Tests ───────────────────────────────────────
+
+
+def test_create_organization_tokens():
+    """Verify organization access and refresh tokens contain org_id claim."""
+    user_id = str(uuid.uuid4())
+    org_id = str(uuid.uuid4())
+
+    access_token = create_organization_access_token(
+        subject=user_id,
+        organization_id=org_id,
+    )
+    refresh_token = create_refresh_token(
+        subject=user_id,
+        organization_id=org_id,
+    )
+
+    access_payload = decode_token(access_token)
+    refresh_payload = decode_token(refresh_token)
+
+    assert access_payload["sub"] == user_id
+    assert access_payload["org_id"] == org_id
+    assert refresh_payload["sub"] == user_id
+    assert refresh_payload["org_id"] == org_id
+
+
+def test_create_refresh_token_without_organization():
+    """Verify refresh tokens generated without an organization do not include org_id."""
+    user_id = uuid.uuid4()
+
+    token = create_refresh_token(subject=str(user_id))
+    payload = decode_token(token)
+
+    assert payload["sub"] == str(user_id)
+    assert payload["type"] == TOKEN_TYPE_REFRESH
+    assert "org_id" not in payload

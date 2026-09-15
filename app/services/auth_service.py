@@ -183,3 +183,92 @@ async def create_organization_access_token_for_user(
         subject=str(user.id),
         organization_id=str(organization_id),
     )
+
+
+async def refresh_access_token(
+    data: RefreshRequest,
+    session: AsyncSession,
+) -> TokenResponse:
+    payload = decode_token(data.refresh_token)
+
+    if payload.get("type") != TOKEN_TYPE_REFRESH:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    subject = payload.get("sub")
+
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        user_id = uuid.UUID(subject)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = await session.get(User, user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    organization_id_value = payload.get("org_id")
+
+    if organization_id_value is None:
+        access_token = create_access_token(str(user.id))
+        new_refresh_token = create_refresh_token(str(user.id))
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=new_refresh_token,
+            token_type="bearer",
+        )
+
+    try:
+        organization_id = uuid.UUID(organization_id_value)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid organization context",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    membership = await get_active_membership(
+        user=user,
+        organization_id=organization_id,
+        session=session,
+    )
+
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You no longer have access to this organization",
+        )
+
+    access_token = create_organization_access_token(
+        subject=str(user.id),
+        organization_id=str(organization_id),
+    )
+
+    new_refresh_token = create_refresh_token(
+        subject=str(user.id),
+        organization_id=str(organization_id),
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+    )

@@ -9,7 +9,7 @@ from app.core.limiter import limiter
 from app.db.session import get_session
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.auth import LoginRequest, OrganizationTokenOut, RefreshRequest, SignupRequest, TokenResponse
+from app.schemas.auth import LoginRequest, OrganizationTokenOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, SignupRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services import auth_service
 
@@ -93,4 +93,26 @@ async def create_organization_token(
         token_type="bearer",
         organization_id=organization_id,
     )
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Refresh an access token",
+)
+async def refresh(
+    data: RefreshRequest,
+    session: AsyncSession = Depends(get_session),
+) -> TokenResponse:
+    # Pass keyword arguments explicitly
+    access_token, new_refresh_token, _ = await auth_service.refresh_access_token(
+        refresh_token=data.refresh_token,
+        session=session,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+    )
+
 
