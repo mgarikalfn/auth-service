@@ -1,5 +1,6 @@
 """Pydantic v2 schemas for authentication endpoints."""
 
+from datetime import datetime
 import uuid
 
 from pydantic import BaseModel, EmailStr, field_validator,Field
@@ -96,3 +97,19 @@ class UserStatusOut(BaseModel):
     user_id: uuid.UUID
     status: str
     message: str
+
+class CurrentUserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    role: str
+    status: str
+    email_verified_at: datetime | None
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True,
+    }
+
+class UserProfileUpdate(BaseModel):
+    email: EmailStr | None = None
+

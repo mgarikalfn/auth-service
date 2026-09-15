@@ -13,7 +13,7 @@ from app.db.session import get_session
 from app.dependencies.admin import require_admin
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.auth import EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse, UserStatusOut
+from app.schemas.auth import CurrentUserOut, EmailVerificationOut, LoginRequest, OrganizationTokenOut, PasswordResetConfirm, PasswordResetConfirmOut, PasswordResetRequest, PasswordResetRequestOut, RefreshRequest, RefreshTokenOut, RefreshTokenRequest, ResendVerificationOut, ResendVerificationRequest, SignupRequest, TokenResponse, UserStatusOut
 from app.schemas.token import VerifyTokenOut
 from app.schemas.user import UserOut
 from app.services import account_service, auth_service, email_verification_service, password_reset_service
@@ -360,4 +360,41 @@ async def deactivate_user(
         user_id=updated_user.id,
         status=updated_user.status.value,
         message="User deactivated successfully.",
+    )
+
+@router.get(
+    "/me",
+    response_model=CurrentUserOut,
+)
+async def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+) -> CurrentUserOut:
+    return CurrentUserOut(
+        id=current_user.id,
+        email=current_user.email,
+        role=current_user.role.value,
+        status=current_user.status.value,
+        email_verified_at=current_user.email_verified_at,
+        created_at=current_user.created_at,
+    )
+
+@router.post(
+    "/me/deactivate",
+    response_model=UserStatusOut,
+)
+async def deactivate_current_user(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserStatusOut:
+    updated_user = await account_service.deactivate_current_user(
+        user=current_user,
+        session=session,
+    )
+
+    await session.commit()
+
+    return UserStatusOut(
+        user_id=updated_user.id,
+        status=updated_user.status.value,
+        message="Your account has been deactivated successfully.",
     )

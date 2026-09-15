@@ -86,3 +86,26 @@ async def reactivate_user(
     await session.flush()
 
     return user
+
+async def deactivate_current_user(
+    *,
+    user: User,
+    session: AsyncSession,
+) -> User:
+    if user.status == UserStatus.DEACTIVATED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account is already deactivated",
+        )
+
+    user.status = UserStatus.DEACTIVATED
+    session.add(user)
+
+    await revoke_all_user_sessions(
+        user_id=user.id,
+        session=session,
+    )
+
+    await session.flush()
+
+    return user
