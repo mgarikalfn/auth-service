@@ -22,7 +22,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.schemas.auth import LoginRequest, SignupRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services import organization_service
@@ -70,7 +70,7 @@ async def signup(data: SignupRequest, session: AsyncSession) -> UserOut:
     )
 
     await email_verification_service.send_verification_email(user=user,session=session)
-    
+
     try:
         await session.commit()
     except IntegrityError:
@@ -99,6 +99,12 @@ async def login(data: LoginRequest, session: AsyncSession) -> TokenResponse:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
+        )
+
+    if user.status != UserStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not active",
         )
 
     # Issue persistent refresh token session
@@ -181,7 +187,16 @@ async def refresh_access_token(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if user.status != UserStatus.ACTIVE:
+        await revoke_refresh_token_family(
+            family_id=stored_token.family_id,
+            session=session,
+        )
 
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not active",
+        )
     organization_id_value = payload.get("org_id")
 
     if organization_id_value is None:
