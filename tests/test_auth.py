@@ -237,6 +237,7 @@ async def test_create_and_get_refresh_token_session(
     user_id = uuid.uuid4()
     token = "test-refresh-token"
     jti = uuid.uuid4().hex
+    family_id = uuid.uuid4()
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
 
     created = await create_refresh_token_session(
@@ -245,6 +246,7 @@ async def test_create_and_get_refresh_token_session(
         organization_id=None,
         expires_at=expires_at,
         jti=jti,
+        family_id=family_id,
         session=session,
     )
 
@@ -385,20 +387,20 @@ async def test_old_refresh_token_is_rejected_after_rotation(
     assert response.status_code == 200
     new_refresh_token = response.json()["refresh_token"]
 
-    # 3. Old token MUST be rejected
-    old_response = await client.post(
-        "/auth/refresh",
-        json={"refresh_token": refresh_token},
-    )
-    assert old_response.status_code == 401
-
-    # 4. New token MUST work
+    # 3. New token MUST work first
     new_response = await client.post(
         "/auth/refresh",
         json={"refresh_token": new_refresh_token},
     )
     assert new_response.status_code == 200
 
+    # 4. Old token reuse MUST be rejected (and will trigger family revocation)
+    old_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert old_response.status_code == 401
+    assert old_response.json()["detail"] == "Refresh token reuse detected"
 
 async def test_refresh_preserves_organization_context(
     client,

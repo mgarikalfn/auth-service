@@ -30,6 +30,7 @@ from app.services.refresh_token_service import (
     get_refresh_token_session,
     issue_refresh_token_session,
     revoke_refresh_token,
+    revoke_refresh_token_family,
 )
 
 
@@ -155,7 +156,17 @@ async def refresh_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    ensure_refresh_token_active(stored_token)
+    # Reuse detection: if already revoked, revoke whole token family
+    if stored_token.revoked_at is not None:
+        await revoke_refresh_token_family(
+            family_id=stored_token.family_id,
+            session=session,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token reuse detected",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     user = await session.get(User, user_id)
 
@@ -177,6 +188,7 @@ async def refresh_access_token(
             user_id=user.id,
             organization_id=None,
             session=session,
+            family_id=stored_token.family_id,
         )
 
         new_payload = decode_token(new_refresh_token)
@@ -219,6 +231,7 @@ async def refresh_access_token(
         user_id=user.id,
         organization_id=organization_id,
         session=session,
+        family_id=stored_token.family_id,
     )
 
     new_payload = decode_token(new_refresh_token)
@@ -230,8 +243,6 @@ async def refresh_access_token(
     )
 
     return access_token, new_refresh_token, organization_id
-
-
 async def create_organization_access_token_for_user(
     *,
     user: User,

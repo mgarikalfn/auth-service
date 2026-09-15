@@ -21,10 +21,12 @@ async def create_refresh_token_session(
     organization_id: uuid.UUID | None,
     expires_at: datetime,
     jti: str,
+    family_id: uuid.UUID,
     session: AsyncSession,
 ) -> RefreshToken:
     refresh_token = RefreshToken(
         jti=jti,
+        family_id=family_id,
         user_id=user_id,
         organization_id=organization_id,
         token_hash=hash_refresh_token(token),
@@ -104,7 +106,11 @@ async def issue_refresh_token_session(
     user_id: uuid.UUID,
     organization_id: uuid.UUID | None,
     session: AsyncSession,
+    family_id: uuid.UUID | None = None,
 ) -> str:
+    if family_id is None:
+        family_id = uuid.uuid4()
+
     organization_id_value = (
         str(organization_id)
         if organization_id is not None
@@ -122,7 +128,28 @@ async def issue_refresh_token_session(
         organization_id=organization_id,
         expires_at=expires_at,
         jti=jti,
+        family_id=family_id,
         session=session,
     )
 
     return token
+
+async def revoke_refresh_token_family(
+    *,
+    family_id: uuid.UUID,
+    session: AsyncSession,
+) -> None:
+    result = await session.exec(
+        select(RefreshToken).where(
+            RefreshToken.family_id == family_id,
+            RefreshToken.revoked_at.is_(None),
+        )
+    )
+
+    now = datetime.now(timezone.utc)
+
+    for refresh_token in result.all():
+        refresh_token.revoked_at = now
+        session.add(refresh_token)
+
+    await session.flush()
