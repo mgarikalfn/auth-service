@@ -37,7 +37,11 @@ class Settings(BaseSettings):
     INVITATION_EXPIRE_HOURS: int = 72
     APP_URL: str = "http://localhost:8000"
 
-
+    # Email Configuration
+    EMAIL_PROVIDER: str = "console"  # Use "resend" in production / .env
+    RESEND_API_KEY: str | None = None
+    EMAIL_FROM: str = "onboarding@resend.dev"
+    EMAIL_FROM_NAME: str = "Auth Service"
 @lru_cache
 def get_settings() -> Settings:
     """Return the singleton Settings instance (cached after first call)."""
@@ -46,3 +50,4 @@ def get_settings() -> Settings:
 
 # Module-level convenience alias so other modules can do `from app.core.config import settings`.
 settings: Settings = get_settings()
+

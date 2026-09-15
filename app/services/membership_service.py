@@ -1,17 +1,20 @@
 
 """Membership business logic."""
 
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from fastapi import HTTPException , status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.security import create_invitation_token, hash_invitation_token
+from app.models.invitation import Invitation, InvitationStatus
 from app.models.membership import Membership, MembershipStatus
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.membership import MembershipWithDetailsOut
-
+from app.core.config import settings
 
 async def get_active_membership(
     user: User,
@@ -213,3 +216,29 @@ async def get_organization_members_with_details(
         )
         for row in result.all()
     ]
+
+async def resend_invitation(
+    *,
+    invitation: Invitation,
+    session: AsyncSession,
+) -> tuple[Invitation, str]:
+    """Generate a new token and expiration for an existing invitation."""
+
+    if invitation.status != InvitationStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only pending invitations can be resent",
+        )
+
+    raw_token = create_invitation_token()
+    now = datetime.now(timezone.utc)
+
+    invitation.token_hash = hash_invitation_token(raw_token)
+    invitation.expires_at = now + timedelta(
+        hours=settings.INVITATION_EXPIRE_HOURS
+    )
+
+    session.add(invitation)
+    await session.flush()
+
+    return invitation, raw_token
