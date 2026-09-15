@@ -7,11 +7,8 @@ from alembic import context
 
 from sqlmodel import SQLModel
 
-# Import all SQLModel models so they are registered with metadata
-from app.models.user import User
-from app.models.organization import Organization
-from app.models.role import Role
-from app.models.membership import Membership
+# Import app.models to ensure all SQLModel models are registered with metadata
+import app.models  # noqa: F401
 
 target_metadata = SQLModel.metadata
 

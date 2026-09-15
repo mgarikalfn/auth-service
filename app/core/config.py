@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     EMAIL_FROM_NAME: str = "Auth Service"
     #password
     PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+    EMAIL_VERIFICATION_EXPIRE_MINUTES: int = 60
 @lru_cache
 def get_settings() -> Settings:
     """Return the singleton Settings instance (cached after first call)."""

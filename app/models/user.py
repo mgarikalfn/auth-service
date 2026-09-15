@@ -37,3 +37,7 @@ class User(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    email_verified_at: datetime | None = Field(
+        default=None,
+        nullable=True,
+    )

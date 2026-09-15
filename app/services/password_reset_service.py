@@ -35,7 +35,8 @@ async def create_password_reset_record(
     reset_record = PasswordResetToken(
         user_id=user_id,
         token_hash=hash_password_reset_token(raw_token),
-        expires_at=now + timedelta(
+        expires_at=now
+        + timedelta(
             minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES
         ),
     )
@@ -78,9 +79,17 @@ def ensure_password_reset_token_active(
     expires_at = record.expires_at
 
     if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+        expires_at = expires_at.replace(
+            tzinfo=timezone.utc
+        )
 
-    if record.used_at is not None or expires_at <= now:
+    if record.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset token",
+        )
+
+    if expires_at <= now:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired password reset token",
@@ -93,8 +102,11 @@ async def mark_password_reset_token_used(
     session: AsyncSession,
 ) -> None:
     record.used_at = datetime.now(timezone.utc)
+
     session.add(record)
+
     await session.flush()
+
 
 async def request_password_reset(
     *,
@@ -104,12 +116,14 @@ async def request_password_reset(
     normalized_email = email.strip().lower()
 
     result = await session.exec(
-        select(User).where(User.email == normalized_email)
+        select(User).where(
+            User.email == normalized_email
+        )
     )
 
     user = result.first()
 
-    # Do not reveal whether the account exists.
+    # Never reveal whether an account exists.
     if user is None:
         return
 
@@ -142,6 +156,7 @@ async def request_password_reset(
         )
     )
 
+
 async def reset_password(
     *,
     raw_token: str,
@@ -155,7 +170,10 @@ async def reset_password(
 
     ensure_password_reset_token_active(record)
 
-    user = await session.get(User, record.user_id)
+    user = await session.get(
+        User,
+        record.user_id,
+    )
 
     if user is None:
         raise HTTPException(
@@ -163,7 +181,9 @@ async def reset_password(
             detail="Invalid or expired password reset token",
         )
 
-    user.hashed_password = hash_password(new_password)
+    user.hashed_password = hash_password(
+        new_password
+    )
 
     session.add(user)
 
@@ -172,6 +192,8 @@ async def reset_password(
         session=session,
     )
 
+    # Revoke every active refresh session after
+    # a successful password reset.
     result = await session.exec(
         select(RefreshToken).where(
             RefreshToken.user_id == user.id,
