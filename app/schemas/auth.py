@@ -66,3 +66,19 @@ class RefreshTokenOut(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     organization_id: uuid.UUID | None = None
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordResetRequestOut(BaseModel):
+    message: str
+
+
+class PasswordResetConfirmOut(BaseModel):
+    message: str

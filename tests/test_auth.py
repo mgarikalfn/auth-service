@@ -20,6 +20,7 @@ from app.models.user import User
 from app.services import organization_service
 from app.services.membership_service import get_active_membership
 from app.services.refresh_token_service import create_refresh_token_session, ensure_refresh_token_active, get_refresh_token_session, hash_refresh_token, issue_refresh_token_session, revoke_refresh_token
+from app.templates.password_reset_email import build_password_reset_email
 
 SIGNUP = "/auth/signup"
 LOGIN = "/auth/login"
@@ -489,3 +490,16 @@ async def test_refresh_token_reuse_revokes_family(
         json={"refresh_token": replacement_token},
     )
     assert final_response.status_code == 401
+
+def test_build_password_reset_email():
+    expires_at = datetime.now(timezone.utc)
+    reset_url = "http://localhost:3000/reset-password?token=test-token"
+
+    subject, html, text = build_password_reset_email(
+        reset_url=reset_url,
+        expires_at=expires_at,
+    )
+
+    assert subject == "Reset your password"
+    assert reset_url in html
+    assert reset_url in text
