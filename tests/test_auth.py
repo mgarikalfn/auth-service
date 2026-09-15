@@ -443,3 +443,49 @@ async def test_refresh_preserves_organization_context(
 
     payload = decode_token(data["access_token"])
     assert payload["org_id"] == str(organization_id)
+
+async def test_refresh_token_reuse_revokes_family(
+    client,
+    session,
+):
+    # 1. Create and persist test user
+    user = User(
+        email="reuse_test@example.com",
+        hashed_password="hashed_password",
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    # 2. Issue initial persistent refresh token session
+    original_token = await issue_refresh_token_session(
+        user_id=user.id,
+        organization_id=None,
+        session=session,
+    )
+    await session.commit()
+
+    # 3. First refresh succeeds and rotates the token
+    first_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": original_token},
+    )
+    assert first_response.status_code == 200
+
+    first_data = first_response.json()
+    replacement_token = first_data["refresh_token"]
+
+    # 4. Attempting to reuse the original token triggers security reuse detection
+    reuse_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": original_token},
+    )
+    assert reuse_response.status_code == 401
+    assert "reuse" in reuse_response.json()["detail"].lower()
+
+    # 5. Verify entire token family was revoked (replacement token fails now)
+    final_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": replacement_token},
+    )
+    assert final_response.status_code == 401
